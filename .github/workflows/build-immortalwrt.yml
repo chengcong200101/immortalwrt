@@ -1,12 +1,12 @@
-name: Build ImmortalWrt 24.10.4 Firmware
+name: Build ImmortalWrt Custom Firmware
 
 on:
   workflow_dispatch:
   push:
-    branches: [ main, master ]
+    branches: [ main ]
 
 env:
-  FIRMWARE_NAME: ImmortalWrt-24.10.4-x86-64-Custom
+  FIRMWARE_NAME: ImmortalWrt-Custom-x86-64
 
 jobs:
   build:
@@ -17,14 +17,9 @@ jobs:
       run: |
         echo "=== Checking disk space ==="
         df -h
+        # 不再强制要求50GB，改为警告
         AVAILABLE_KB=$(df / --output=avail | tail -1)
-        REQUIRED_KB=15000000  # 降低到15GB要求
-        if [ $AVAILABLE_KB -lt $REQUIRED_KB ]; then
-          echo "Warning: Limited disk space, only $((AVAILABLE_KB / 1024 / 1024))GB available"
-          echo "We'll try to build with limited space, but may fail"
-        else
-          echo "Disk space sufficient: $((AVAILABLE_KB / 1024 / 1024))GB available"
-        fi
+        echo "Available space: $((AVAILABLE_KB / 1024 / 1024))GB"
 
     - name: Checkout repository
       uses: actions/checkout@v4
@@ -34,19 +29,14 @@ jobs:
         echo "=== Cleaning up system space ==="
         sudo apt-get clean
         sudo rm -rf /var/lib/apt/lists/*
-        sudo journalctl --vacuum-size=50M
+        sudo journalctl --vacuum-size=10M
         docker system prune -af 2>/dev/null || true
-        # 清理其他缓存
         sudo rm -rf /tmp/*
-        sudo rm -rf /var/tmp/*
 
-    - name: Install minimal build dependencies
-      timeout-minutes: 10
+    - name: Install build dependencies
       run: |
-        echo "=== Installing minimal build dependencies ==="
+        echo "=== Installing build dependencies ==="
         sudo apt-get update
-        
-        # 只安装最必要的依赖
         sudo apt-get install -y \
           build-essential \
           ccache \
@@ -55,6 +45,7 @@ jobs:
           bison \
           g++ \
           gawk \
+          gcc-multilib \
           gettext \
           git \
           libncurses5-dev \
@@ -67,121 +58,155 @@ jobs:
           file \
           wget \
           curl \
-          subversion
-        
+          subversion \
+          quilt \
+          libelf-dev
         sudo apt-get clean
-        echo "Dependencies installed successfully"
 
-    - name: Clone ImmortalWrt source (shallow)
-      timeout-minutes: 5
+    - name: Clone ImmortalWrt source
       run: |
-        echo "=== Cloning ImmortalWrt source (shallow) ==="
-        # 使用极浅克隆节省空间
-        git clone https://github.com/immortalwrt/immortalwrt.git --depth=1 --branch=v24.10.4
-        
-        if [ $? -ne 0 ]; then
-          echo "Clone failed, trying master branch"
-          git clone https://github.com/immortalwrt/immortalwrt.git --depth=1
-          cd immortalwrt
-        else
-          cd immortalwrt
-        fi
-        
-        echo "Source preparation completed"
+        echo "=== Cloning ImmortalWrt source ==="
+        # 使用特定分支或标签以减少不确定性
+        git clone https://github.com/immortalwrt/immortalwrt.git --depth=1 --branch=openwrt-23.05
+        cd immortalwrt
+        echo "Source cloned successfully"
 
-    - name: Update and install feeds (minimal)
-      timeout-minutes: 15
+    - name: Update and install feeds
       run: |
-        echo "=== Updating and installing minimal feeds ==="
+        echo "=== Updating and installing feeds ==="
         cd immortalwrt
         
-        # 只更新必要的feeds
-        ./scripts/feeds update packages luci routing telephony
+        # 分步更新feeds，避免一次性占用太多资源
+        ./scripts/feeds update packages
+        ./scripts/feeds update luci
+        ./scripts/feeds update routing
+        ./scripts/feeds update telephony
+        
         ./scripts/feeds install -a
-        
-        echo "Feeds installation completed"
+        echo "Feeds installed successfully"
 
-    - name: Create minimal configuration
+    - name: Create optimized configuration
       run: |
-        echo "=== Creating minimal configuration ==="
+        echo "=== Creating optimized configuration ==="
         cd immortalwrt
         
-        # 创建最小化配置，只包含必需的插件
-        {
-          echo "CONFIG_TARGET_x86=y"
-          echo "CONFIG_TARGET_x86_64=y"
-          echo "CONFIG_TARGET_x86_64_DEVICE_generic=y"
-          echo ""
-          echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y"
-          echo "CONFIG_TARGET_IMAGES_GZIP=y"
-          echo ""
-          # 最小化内核模块
-          echo "CONFIG_PACKAGE_kmod-usb-core=y"
-          echo "CONFIG_PACKAGE_kmod-usb-storage=y"
-          echo "CONFIG_PACKAGE_kmod-usb2=y"
-          echo "CONFIG_PACKAGE_kmod-fs-ext4=y"
-          echo "CONFIG_PACKAGE_kmod-fs-vfat=y"
-          echo ""
-          # 网络基础
-          echo "CONFIG_PACKAGE_dnsmasq=y"
-          echo "CONFIG_PACKAGE_firewall=y"
-          echo "CONFIG_PACKAGE_iptables=y"
-          echo ""
-          # LUCI基础
-          echo "CONFIG_PACKAGE_luci=y"
-          echo "CONFIG_PACKAGE_luci-base=y"
-          echo "CONFIG_PACKAGE_luci-compat=y"
-          echo "CONFIG_PACKAGE_luci-theme-bootstrap=y"
-          echo ""
-          # 只选择最需要的几个插件
-          echo "CONFIG_PACKAGE_luci-app-adguardhome=y"
-          echo "CONFIG_PACKAGE_luci-app-firewall=y"
-          echo "CONFIG_PACKAGE_luci-app-upnp=y"
-          echo "CONFIG_PACKAGE_luci-app-wol=y"
-          echo "CONFIG_PACKAGE_luci-app-zerotier=y"
-          echo "CONFIG_PACKAGE_luci-theme-argon=y"
-          echo ""
-          # 必要的依赖
-          echo "CONFIG_PACKAGE_adguardhome=y"
-          echo "CONFIG_PACKAGE_zerotier=y"
-          echo "CONFIG_PACKAGE_wol=y"
-          echo ""
-          echo "CONFIG_CCACHE=y"
-        } > .config
-
-        echo "Minimal configuration created successfully"
+        # 使用逐行echo创建配置，避免复杂的heredoc
+        echo "CONFIG_TARGET_x86=y" > .config
+        echo "CONFIG_TARGET_x86_64=y" >> .config
+        echo "CONFIG_TARGET_x86_64_DEVICE_generic=y" >> .config
+        echo "" >> .config
+        
+        # 镜像配置
+        echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
+        echo "CONFIG_TARGET_IMAGES_GZIP=y" >> .config
+        echo "" >> .config
+        
+        # 基础系统
+        echo "CONFIG_PACKAGE_block-mount=y" >> .config
+        echo "CONFIG_PACKAGE_fdisk=y" >> .config
+        echo "" >> .config
+        
+        # 最小化内核模块
+        echo "CONFIG_PACKAGE_kmod-usb-core=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-usb-storage=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-usb2=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-fs-ext4=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-fs-vfat=y" >> .config
+        echo "" >> .config
+        
+        # 网络基础
+        echo "CONFIG_PACKAGE_dnsmasq=y" >> .config
+        echo "CONFIG_PACKAGE_firewall=y" >> .config
+        echo "CONFIG_PACKAGE_iptables=y" >> .config
+        echo "CONFIG_PACKAGE_ppp=y" >> .config
+        echo "CONFIG_PACKAGE_ppp-mod-pppoe=y" >> .config
+        echo "" >> .config
+        
+        # LUCI基础
+        echo "CONFIG_PACKAGE_luci=y" >> .config
+        echo "CONFIG_PACKAGE_luci-base=y" >> .config
+        echo "CONFIG_PACKAGE_luci-compat=y" >> .config
+        echo "CONFIG_PACKAGE_luci-theme-bootstrap=y" >> .config
+        echo "" >> .config
+        
+        # 您需要的所有插件 - 分批添加
+        echo "# 核心插件" >> .config
+        echo "CONFIG_PACKAGE_luci-app-adguardhome=y" >> .config
+        echo "CONFIG_PACKAGE_luci-app-firewall=y" >> .config
+        echo "CONFIG_PACKAGE_luci-app-upnp=y" >> .config
+        echo "CONFIG_PACKAGE_luci-app-wol=y" >> .config
+        echo "CONFIG_PACKAGE_luci-app-zerotier=y" >> .config
+        echo "" >> .config
+        
+        echo "# DNS相关" >> .config
+        echo "CONFIG_PACKAGE_luci-app-smartdns=y" >> .config
+        echo "CONFIG_PACKAGE_luci-app-ddns-go=y" >> .config
+        echo "" >> .config
+        
+        echo "# 系统工具" >> .config
+        echo "CONFIG_PACKAGE_luci-app-ttyd=y" >> .config
+        echo "CONFIG_PACKAGE_luci-app-netdata=y" >> .config
+        echo "CONFIG_PACKAGE_luci-app-vsftpd=y" >> .config
+        echo "CONFIG_PACKAGE_luci-app-attendedsysupgrade=y" >> .config
+        echo "CONFIG_PACKAGE_luci-app-autoupdate=y" >> .config
+        echo "CONFIG_PACKAGE_luci-app-package-manager=y" >> .config
+        echo "" >> .config
+        
+        echo "# 网络优化" >> .config
+        echo "CONFIG_PACKAGE_luci-app-turboacc=y" >> .config
+        echo "CONFIG_PACKAGE_luci-app-lucky=y" >> .config
+        echo "" >> .config
+        
+        echo "# 主题" >> .config
+        echo "CONFIG_PACKAGE_luci-theme-argon=y" >> .config
+        echo "" >> .config
+        
+        # 插件依赖
+        echo "# 依赖包" >> .config
+        echo "CONFIG_PACKAGE_adguardhome=y" >> .config
+        echo "CONFIG_PACKAGE_smartdns=y" >> .config
+        echo "CONFIG_PACKAGE_ddns-go=y" >> .config
+        echo "CONFIG_PACKAGE_ttyd=y" >> .config
+        echo "CONFIG_PACKAGE_zerotier=y" >> .config
+        echo "CONFIG_PACKAGE_vsftpd=y" >> .config
+        echo "CONFIG_PACKAGE_netdata=y" >> .config
+        echo "CONFIG_PACKAGE_wol=y" >> .config
+        echo "CONFIG_PACKAGE_miniupnpd=y" >> .config
+        echo "" >> .config
+        
+        # 编译设置
+        echo "CONFIG_CCACHE=y" >> .config
+        
+        echo "Configuration created successfully"
 
     - name: Download package sources
-      timeout-minutes: 20
       run: |
         echo "=== Downloading package sources ==="
         cd immortalwrt
         
         make defconfig
         
+        # 分批次下载，避免网络问题
         for i in 1 2 3; do
-          echo "Downloading packages (attempt $i)..."
-          make download -j4
+          echo "Download attempt $i"
+          make download -j2
           if [ $? -eq 0 ]; then
-            echo "Package download successful"
+            echo "Download successful"
             break
-          else
-            echo "Package download failed, retrying..."
-            sleep 10
           fi
+          sleep 10
         done
 
     - name: Build toolchain
-      timeout-minutes: 45
       run: |
         echo "=== Building toolchain ==="
         cd immortalwrt
         
-        echo "Building toolchain..."
-        make toolchain/compile -j2 V=s
+        # 只构建工具链，节省空间
+        make toolchain/compile -j2
 
-    - name: Build firmware (single thread)
-      timeout-minutes: 120
+    - name: Build firmware with limited resources
+      timeout-minutes: 180
       run: |
         echo "=== Building firmware ==="
         cd immortalwrt
@@ -189,18 +214,21 @@ jobs:
         echo "Disk space before build:"
         df -h
         
-        echo "Starting firmware build (single thread to save memory)..."
-        # 使用单线程编译节省内存和空间
-        make -j1 V=s 2>&1 | tee build.log
+        # 使用单线程编译，减少内存和磁盘使用
+        echo "Starting single-threaded build to save resources..."
+        make -j1 V=s 2>&1 | tee build.log || {
+          echo "First build attempt failed, trying with clean build..."
+          make clean
+          make -j1 V=s 2>&1 | tee build.log
+        }
         
         echo "=== Checking build results ==="
         if ls bin/targets/x86/64/*.img.gz 1> /dev/null 2>&1; then
           echo "Firmware build successful!"
-          ls -la bin/targets/x86/64/*.img.gz
+          ls -la bin/targets/x86/64/
           echo "FIRMWARE_BUILT=true" >> $GITHUB_ENV
         else
           echo "Firmware build failed"
-          echo "Check build.log for errors"
           echo "FIRMWARE_BUILT=false" >> $GITHUB_ENV
           exit 1
         fi
@@ -214,7 +242,6 @@ jobs:
           immortalwrt/bin/targets/x86/64/*.img.gz
           immortalwrt/bin/targets/x86/64/sha256sums
         retention-days: 30
-        if-no-files-found: error
 
     - name: Upload build logs
       if: always()
@@ -229,11 +256,8 @@ jobs:
     - name: Notify build status
       if: always()
       run: |
-        echo "=== Build Status ==="
         if [ "$FIRMWARE_BUILT" = "true" ]; then
-          echo "Build completed successfully!"
-          echo "Firmware can be downloaded from Artifacts"
+          echo "🎉 Build completed successfully!"
         else
-          echo "Build failed"
-          echo "Please check build-logs for details"
+          echo "❌ Build failed - check build logs for details"
         fi
