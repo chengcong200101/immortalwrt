@@ -12,7 +12,7 @@ CONFIG_VHDX_IMAGES=y
 # 基础包
 CONFIG_PACKAGE_luci=y
 CONFIG_PACKAGE_luci-ssl-openssl=y
-CONFIG_LUCI_LANG_zh-cn=y
+CONFIG_LUCI_LANG_zh_Hans=y
 
 # TurboACC 加速
 CONFIG_PACKAGE_luci-app-turboacc=y
@@ -24,8 +24,28 @@ CONFIG_PACKAGE_kmod-fast-classifier=y
 CONFIG_PACKAGE_kmod-shortcut-fe=y
 CONFIG_PACKAGE_kmod-shortcut-fe-cm=y
 
-# 其他常用包
+# 网络工具
+CONFIG_PACKAGE_iperf3=y
+CONFIG_PACKAGE_tcpdump=y
+
+# 常用工具
 CONFIG_PACKAGE_wget-ssl=y
 CONFIG_PACKAGE_curl=y
 CONFIG_PACKAGE_bash=y
 CONFIG_PACKAGE_htop=y
+CONFIG_PACKAGE_vim-full=y
+
+# 文件系统支持
+CONFIG_PACKAGE_kmod-fs-exfat=y
+CONFIG_PACKAGE_kmod-fs-ntfs=y
+CONFIG_PACKAGE_kmod-fs-ext4=y
+
+# USB 支持
+CONFIG_PACKAGE_kmod-usb-storage=y
+CONFIG_PACKAGE_kmod-usb-storage-uas=y
+CONFIG_PACKAGE_kmod-usb2=y
+CONFIG_PACKAGE_kmod-usb3=y
+
+# 其他内核模块
+CONFIG_PACKAGE_kmod-tun=y
+CONFIG_PACKAGE_kmod-ipt-offload=y
