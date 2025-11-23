@@ -9,12 +9,6 @@ on:
         default: true
         type: boolean
 
-      SSH_ACTION:
-        description: "SSH远程配置固件"
-        required: false
-        default: false
-        type: boolean
-
   # 定时触发编译(北京时间：每天早2点)
   schedule:
     - cron: 30 17 * * *
@@ -27,10 +21,6 @@ run-name: >-
 env:
   TZ: Asia/Shanghai
   MY_GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
-  WECHAT_WORK_URL: ${{ secrets.WECHAT_WORK_URL }}
-  WECHAT_WORK_TOKEN: ${{ secrets.WECHAT_WORK_TOKEN }}
-  TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-  TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
   GITHUB_RELEASE: https://github.com/${{ github.repository }}/releases
 
 jobs:
@@ -48,75 +38,44 @@ jobs:
 
       - name: 检测脚本设置
         run: |
-          echo "当前工作目录: $PWD"
-          echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
-          echo "检查 build 目录内容:"
-          ls -la "${GITHUB_WORKSPACE}/build/" || echo "build 目录不存在"
-          ls -la "${GITHUB_WORKSPACE}/build/immortalwrt_x86/" || echo "immortalwrt_x86 目录不存在"
-          
-          # 检查 settings.ini 文件
           SETTINGS_FILE="${GITHUB_WORKSPACE}/build/immortalwrt_x86/settings.ini"
           if [ ! -f "$SETTINGS_FILE" ]; then
-            echo "❌ 错误: settings.ini 文件不存在于 $SETTINGS_FILE"
+            echo "❌ 错误: settings.ini 文件不存在"
             exit 1
           fi
           
-          echo "✅ settings.ini 文件存在，内容如下:"
-          cat "$SETTINGS_FILE"
-          echo "=== 文件内容结束 ==="
-          
           # 使用更安全的方式加载配置
           while IFS='=' read -r key value; do
-            # 跳过空行和注释
             if [[ -z "$key" || "$key" =~ ^[[:space:]]*# ]]; then
               continue
             fi
-            # 移除值部分的引号（如果有）
             value=$(echo "$value" | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")
-            # 设置环境变量
             echo "${key}=${value}" >> $GITHUB_ENV
-            echo "设置变量: ${key}=${value}"
           done < "$SETTINGS_FILE"
           
-          # 设置其他必要的环境变量
           echo "HOME=${GITHUB_WORKSPACE}/immortalwrt" >> $GITHUB_ENV
           echo "WORKPATH=${GITHUB_WORKSPACE}/immortalwrt/build/immortalwrt_x86" >> $GITHUB_ENV
           echo "UPLOAD_TARGETS=true" >> $GITHUB_ENV
-          
-          echo "✅ 所有环境变量已设置完成"
 
       - name: 初始化系统环境
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
-          sudo -E rm -rf /usr/share/dotnet /etc/mysql /etc/php /etc/apt/sources.list.d /usr/local/lib/android
-          sudo -E apt-mark hold grub-efi-amd64-signed
           sudo -E apt update -y
-          sudo -E apt -y purge azure-cli* docker* ghc* zulu* llvm* firefox google* dotnet* powershell* openjdk* mysql* php* mongodb* dotnet* snap* || true
           sudo -E apt full-upgrade -y
           sudo -E apt install -y ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
                      bzip2 ccache clang cmake cpio curl device-tree-compiler ecj flex gawk gcc-multilib \
                      g++-multilib git gnutls-dev gperf haveged help2man intltool lib32gcc-s1 libc6-i386 libelf-dev \
                      libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses-dev \
                      libreadline-dev libssl-dev libpython3-dev libtool libyaml-dev libz-dev lld llvm lrzsz msmtp \
-                     ninja-build p7zip p7zip-full patch pkgconf python3 python3 python3-ply python3-docutils \
+                     ninja-build p7zip p7zip-full patch pkgconf python3 python3-ply python3-docutils \
                      python3-pyelftools qemu-utils re2c rsync scons squashfs-tools subversion swig texinfo uglifyjs \
-                     upx-ucl unzip vim wget xmlto xxd zlib1g-dev zstd libfuse-dev gettext genisoimage uuid-dev python3-setuptools || true
-          sudo -E systemctl daemon-reload
-          sudo -E apt -y autoremove --purge
-          sudo -E apt clean
+                     upx-ucl unzip vim wget xmlto xxd zlib1g-dev zstd libfuse-dev gettext genisoimage uuid-dev python3-setuptools
 
       - name: 编译前准备
         run: |
-          sudo -E apt-get -y install xsltproc zip grep python3-pip python3-ply libc6-dev libtinfo-dev libtinfo5 ncurses-doc \
-                      python2 git-core wget curl rsync dos2unix fakeroot jq libc6-dev-i386 libncurses5-dev libncursesw5 \
-                      libncursesw5-dev quilt python3-distutils file g++ || true
-          sudo mkdir -p /workdir
-          sudo chown $USER:$GROUPS /workdir
-          sudo timedatectl set-timezone "$TZ"
-          echo
-          echo " 系统空间      类型   总数  已用  可用 使用率"
-          df -hT $PWD
+          sudo -E apt-get -y install xsltproc zip grep python3-pip libc6-dev libtinfo-dev ncurses-doc \
+                      git-core wget curl rsync dos2unix fakeroot jq libncurses5-dev libncursesw5-dev quilt file g++
 
       - name: 释放Ubuntu磁盘空间
         uses: jlumbroso/free-disk-space@main
@@ -124,8 +83,6 @@ jobs:
           tool-cache: true
           android: true
           dotnet: true
-          haskell: true
-          large-packages: true
           docker-images: true
           swap-storage: true
 
@@ -145,43 +102,16 @@ jobs:
           sudo mkdir -p /github-builder
           sudo mount /dev/github/runner /github-builder
           sudo chown -R $USER:$GROUPS /github-builder
-          df -Th
 
       - name: 下载ImmortalWrt源码
         working-directory: /github-builder
         run: |
-          df -hT $PWD
           git clone -b $REPO_BRANCH --single-branch $REPO_URL immortalwrt
-          TOOLCHAIN_HASH=$(cd immortalwrt && git log --pretty=tformat:'%h' -n1 tools toolchain || echo none)
-          echo "TOOLCHAIN_HASH=$TOOLCHAIN_HASH" >> $GITHUB_ENV
-          echo "$TOOLCHAIN_HASH" > immortalwrt/.toolchain.hash
           ln -sf /github-builder/immortalwrt $GITHUB_WORKSPACE/immortalwrt
-
-      - name: 缓存使用标志
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          INPUT_CACHE_BUILD: ${{ github.event.inputs.CACHE_BUILD }}
-          CACHE_BUILD: ${{ env.CACHE_BUILD }}
-        run: |
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            if [ "$INPUT_CACHE_BUILD" = "true" ]; then
-              echo "USE_CACHE=true" >> $GITHUB_ENV
-            else
-              echo "USE_CACHE=false" >> $GITHUB_ENV
-            fi
-          elif [ "$EVENT_NAME" = "schedule" ]; then
-            if [ "$CACHE_BUILD" = "true" ]; then
-              echo "USE_CACHE=true" >> $GITHUB_ENV
-            else
-              echo "USE_CACHE=false" >> $GITHUB_ENV
-            fi
-          else
-            echo "USE_CACHE=false" >> $GITHUB_ENV
-          fi
 
       - name: 缓存加速
         uses: xcz-ns/cachewrtbuild@main
-        if: env.USE_CACHE == 'true'
+        if: env.CACHE_BUILD == 'true'
         with:
           ccache: "true"
           prefix: ${{ github.workspace }}/immortalwrt
@@ -190,318 +120,113 @@ jobs:
       - name: 更新时区、编译时间
         id: date
         run: |
-          sudo timedatectl set-timezone "$TZ"
           echo "FILE_TIME=$(date +"%m-%d %H.%M")" >> $GITHUB_ENV
           echo "FILE_TIME1=$(date "+%Y年%m月%d日-%H点%M分")" >> $GITHUB_ENV
           echo "FILE_TIME2=$(date "+%Y%m%d-%H%M")" >> $GITHUB_ENV
-          echo "编译开始时间..."
           START_TIME=`date +'%Y-%m-%d %H:%M:%S'`
           echo "START_SECONDS=$(date --date="$START_TIME" +%s)" >> $GITHUB_ENV
 
-      - name: 加载源,定制文件并生成自定义配置
+      - name: 加载配置
         run: |
-          # 复制配置文件到源码目录
-          cp -Rf `find ./ -maxdepth 1 -type d ! -path './immortalwrt' ! -path './'` immortalwrt
+          cp -Rf build immortalwrt/
           cd immortalwrt
-
-          echo "执行脚本"
-          if [ -f "${WORKPATH}/$CUSTOM_SH" ]; then
-          (
-            chmod +x ${WORKPATH}/$CUSTOM_SH
-            /bin/bash "${WORKPATH}/$CUSTOM_SH"
-          )
-          fi
-
-          echo "复制脚本文件..."
-          if [ -n "$(ls -A "${GITHUB_WORKSPACE}/immortalwrt/build/scripts/files" 2>/dev/null)" ]; then
-            if [ -d "files" ]; then
-              cp -rf ${GITHUB_WORKSPACE}/immortalwrt/build/scripts/files/* files
-              chmod -R 755 ${HOME}/files
-            else
-              cp -rf ${GITHUB_WORKSPACE}/immortalwrt/build/scripts/files/ files
-              chmod -R 755 ${HOME}/files
-            fi
-          fi
-
-          echo "复制配置文件..."
-          if [ -n "$(ls -A "${WORKPATH}/files" 2>/dev/null)" ]; then
-            if [ -d "files" ]; then
-              cp -rf ${WORKPATH}/files/* files
-              chmod -R 755 ${WORKPATH}/files
-            else
-              cp -rf ${WORKPATH}/files/ files
-              chmod -R 755 ${WORKPATH}/files
-            fi
-          fi
-
-          echo "复制源码文件..."
-          if [ -n "$(ls -A "${WORKPATH}/sources" 2>/dev/null)" ]; then
-            cp -Rf ${WORKPATH}/sources/* ./
-          fi
-
-          echo "写入配置文件..."
           mv ${WORKPATH}/$CONFIG_FILE .config
           make defconfig
 
-      - name: 验证配置文件
+      - name: 检查并修复依赖
         run: |
           cd immortalwrt
-          echo "验证配置文件完整性..."
-          
-          if [ ! -f ".config" ]; then
-            echo "错误: .config 文件不存在"
-            exit 1
-          fi
-          
-          echo "配置文件基本检查:"
-          echo "- 目标架构: $(grep "CONFIG_TARGET_x86" .config | head -1 || echo "未设置")"
-          echo "- TurboACC: $(grep "CONFIG_PACKAGE_luci-app-turboacc" .config | head -1 || echo "未设置")"
-          echo "- LUCI界面: $(grep "CONFIG_PACKAGE_luci" .config | head -1 || echo "未设置")"
-          
-          # 确保基本配置存在
-          if ! grep -q "CONFIG_TARGET_x86=y" .config; then
-            echo "警告: 未设置x86目标，尝试修复..."
-            echo "CONFIG_TARGET_x86=y" >> .config
-            echo "CONFIG_TARGET_x86_64=y" >> .config
-            echo "CONFIG_TARGET_x86_64_DEVICE_generic=y" >> .config
-          fi
-          
+          echo "检查依赖关系..."
           make defconfig
+          
+          # 下载所有需要的包
+          echo "下载所需文件..."
+          make download -j4
 
-      - name: 添加TurboACC加速
-        run: |
-          cd immortalwrt
-          echo "添加TurboACC加速功能..."
-          
-          # 确保配置文件存在
-          if [ ! -f ".config" ]; then
-            echo "错误: .config 文件不存在"
-            exit 1
-          fi
-          
-          echo "当前配置文件中TurboACC相关设置:"
-          grep -i "turboacc" .config || echo "未找到TurboACC配置"
-          
-          # 直接修改.config文件启用TurboACC
-          echo "启用TurboACC相关配置..."
-          sed -i 's/# CONFIG_PACKAGE_luci-app-turboacc is not set/CONFIG_PACKAGE_luci-app-turboacc=y/' .config
-          sed -i 's/CONFIG_PACKAGE_luci-app-turboacc=n/CONFIG_PACKAGE_luci-app-turboacc=y/' .config
-          
-          sed -i 's/# CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_flow-offload is not set/CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_flow-offload=y/' .config
-          sed -i 's/CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_flow-offload=n/CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_flow-offload=y/' .config
-          
-          sed -i 's/# CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_shortcut-fe is not set/CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_shortcut-fe=y/' .config
-          sed -i 's/CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_shortcut-fe=n/CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_shortcut-fe=y/' .config
-          
-          sed -i 's/# CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_dnsforwarder is not set/CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_dnsforwarder=y/' .config
-          sed -i 's/CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_dnsforwarder=n/CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_dnsforwarder=y/' .config
-          
-          sed -i 's/# CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_bbr-cca is not set/CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_bbr-cca=y/' .config
-          sed -i 's/CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_bbr-cca=n/CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_bbr-cca=y/' .config
-          
-          # 添加内核模块支持
-          echo "CONFIG_PACKAGE_kmod-fast-classifier=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-shortcut-fe=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-shortcut-fe-cm=y" >> .config
-          
-          echo "TurboACC配置后的设置:"
-          grep -i "turboacc" .config || echo "未找到TurboACC配置"
-          
-          # 更新配置
-          make defconfig
-
-      - name: 输出编译信息
-        run: |
-          cd immortalwrt
-          
-          echo
-          echo " 系统空间      类型   总数  已用  可用 使用率"
-          df -hT $PWD
-          
-          echo
-          echo "=========================================="
-          echo
-          
-          echo "	    CPU物理数量:$(cat /proc/cpuinfo| grep "physical id"| sort| uniq| wc -l)"
-          echo "	    CPU核心及版本信息：$(cat /proc/cpuinfo | grep name | cut -f2 -d: | uniq -c)"
-          
-          echo
-          echo "=========================================="
-          echo
-          
-          # 获取ImmortalWrt版本信息
-          if [ -f "package/base-files/files/etc/openwrt_release" ]; then
-            echo "	    当前编译版本：ImmortalWrt $(grep 'DISTRIB_DESCRIPTION' package/base-files/files/etc/openwrt_release | cut -d "'" -f 2)"
-          else
-            echo "	    当前编译版本：无法获取版本信息"
-          fi
-          
-          # 获取内核版本
-          if [ -f "target/linux/x86/Makefile" ]; then
-            KERNEL_VERSION=$(cat target/linux/x86/Makefile | grep KERNEL_PATCHVER | head -1 | sed 's/^.\{17\}//g')
-            echo "KERNEL_PATCHVER=$KERNEL_VERSION" >> $GITHUB_ENV
-            echo "	    内核版本：$KERNEL_VERSION"
-          else
-            echo "KERNEL_PATCHVER=unknown" >> $GITHUB_ENV
-            echo "	    内核版本：未知"
-          fi
-          
-          echo "	    源码分支：${{ env.REPO_BRANCH }}"
-          echo "	    编译时间：${{ env.FILE_TIME1 }}"
-          
-          echo
-          echo "=========================================="
-          
-          # 检查TurboACC是否启用
-          if grep -q "CONFIG_PACKAGE_luci-app-turboacc=y" .config; then
-            echo "	    TurboACC加速：已启用"
-          else
-            echo "	    TurboACC加速：未启用 - 尝试手动启用"
-            # 尝试手动启用
-            echo "CONFIG_PACKAGE_luci-app-turboacc=y" >> .config
-            echo "CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_flow-offload=y" >> .config
-            echo "CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_shortcut-fe=y" >> .config
-            echo "CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_dnsforwarder=y" >> .config
-            echo "CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_bbr-cca=y" >> .config
-            echo "CONFIG_PACKAGE_kmod-fast-classifier=y" >> .config
-            echo "CONFIG_PACKAGE_kmod-shortcut-fe=y" >> .config
-            echo "CONFIG_PACKAGE_kmod-shortcut-fe-cm=y" >> .config
-            echo "	    TurboACC加速：已手动启用"
-          fi
-          
-          echo
-          echo "=========================================="
-          
-          # 生成插件列表，但忽略任何错误
-          set +e
-          grep -i CONFIG_PACKAGE_luci-app .config | grep -v \# > Plug-in 2>/dev/null
-          grep -i CONFIG_PACKAGE_luci-theme .config | grep -v \# >> Plug-in 2>/dev/null
-          sed -i '/INCLUDE/d' Plug-in > /dev/null 2>&1
-          sed -i 's/CONFIG_PACKAGE_/、/g' Plug-in > /dev/null 2>&1
-          sed -i '/Transparent_Proxy/d' Plug-in > /dev/null 2>&1
-          sed -i '/qbittorrent-simple_dynamic/d' Plug-in > /dev/null 2>&1
-          sed -i 's/=y/\ /g' Plug-in > /dev/null 2>&1
-          awk '$0=NR$0' Plug-in > Plug-2 2>/dev/null
-          awk '{print "	" $0}' Plug-2 > Plug-in 2>/dev/null
-          PLUGIN_LIST=$(cat Plug-in 2>/dev/null)
-          echo "PLUGIN_LIST<<EOF" >> $GITHUB_ENV
-          echo "$PLUGIN_LIST" >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
-          set -e
-          
-          echo
-          echo
-          echo "	      已选插件列表"
-          cat Plug-in 2>/dev/null || echo "	    无法生成插件列表"
-          
-          # 安全地删除文件
-          rm -f Plug-in Plug-2
-          
-          echo
-          echo "=========================================="
-
-      - name: 下载编译所需文件
-        run: |
-          cd immortalwrt && make download -j4
-
-      - name: 开始编译固件
+      - name: 分步编译
         id: compile
         run: |
           cd immortalwrt
-          make -j$(nproc) || make -j1 V=s
-
-      - name: 检查空间使用情况
-        run: |
-          echo "======================="
-          echo "Space usage:"
-          echo "======================="
-          df -hT
-          echo "======================="
-          du -h --max-depth=1 immortalwrt/ --exclude=build_dir --exclude=bin
-          du -h --max-depth=1 immortalwrt/build_dir
-          du -h --max-depth=1 immortalwrt/bin
+          echo "开始分步编译..."
+          
+          # 步骤1: 编译工具链
+          echo "步骤1: 编译工具链..."
+          if make toolchain/install -j$(nproc); then
+            echo "✅ 工具链编译成功"
+          else
+            echo "❌ 工具链编译失败"
+            exit 1
+          fi
+          
+          # 步骤2: 编译目标工具
+          echo "步骤2: 编译目标工具..."
+          if make target/compile -j$(nproc); then
+            echo "✅ 目标编译成功"
+          else
+            echo "❌ 目标编译失败"
+            exit 1
+          fi
+          
+          # 步骤3: 编译包
+          echo "步骤3: 编译包..."
+          if make package/compile -j$(nproc); then
+            echo "✅ 包编译成功"
+          else
+            echo "❌ 包编译失败，尝试单线程编译..."
+            make package/compile -j1 V=s
+          fi
+          
+          # 步骤4: 完整安装
+          echo "步骤4: 完整安装..."
+          if make package/install -j$(nproc); then
+            echo "✅ 包安装成功"
+          else
+            echo "❌ 包安装失败，尝试单线程安装..."
+            make package/install -j1 V=s
+          fi
+          
+          # 步骤5: 生成镜像
+          echo "步骤5: 生成镜像..."
+          if make target/install -j$(nproc); then
+            echo "✅ 镜像生成成功"
+          else
+            echo "❌ 镜像生成失败，尝试单线程生成..."
+            make target/install -j1 V=s
+          fi
 
       - name: 整理固件文件
-        id: organizer
+        if: steps.compile.outcome == 'success'
         run: |
           mkdir -p ./artifact/firmware
-          mkdir -p ./artifact/pvekvm
-          mkdir -p ./artifact/hyperv
-          mkdir -p ./artifact/vmware
-          mkdir -p ./artifact/package
-          mkdir -p ./artifact/buildinfo
           mkdir -p ./artifact/targets
-          cp -rf immortalwrt/.config ./artifact/buildinfo/immortalwrt_x86.config || true
-          rm -rf $(find immortalwrt/bin/targets/ -type d -name "packages")
-          cp -rf $(find immortalwrt/bin/packages/ -type f -name "*.ipk") ./artifact/package/ || true
-          cp -rf $(find immortalwrt/bin/targets/ -type f -name "*.buildinfo" -o -name "*.manifest") ./artifact/buildinfo/ || true        
-          cp -rf $(find immortalwrt/bin/targets/ -type f \( -name "*squashfs*efi*img*" -o -name "*squashfs*sysupgrade*bin*" -o -name "*squashfs*factory*bin*" -o -name "*squashfs*img*" -o -name "*ext4*img*" \) ) ./artifact/firmware/
-          cp -rf immortalwrt/bin/targets/ ./artifact/targets/
-          cp -rf $(find immortalwrt/bin/targets/ -type f -name "*squashfs*efi*qcow2*") ./artifact/pvekvm/ || true
-          cp -rf $(find immortalwrt/bin/targets/ -type f -name "*squashfs*efi*vhdx*") ./artifact/hyperv/ || true
-          cp -rf $(find immortalwrt/bin/targets/ -type f -name "*squashfs*efi*vmdk*") ./artifact/vmware/ || true
-          echo "编译完成时间..."
-          START_SECONDS=${{ env.START_SECONDS }}
+          cp -rf $(find immortalwrt/bin/targets/ -type f \( -name "*squashfs*efi*img*" -o -name "*squashfs*sysupgrade*bin*" -o -name "*squashfs*factory*bin*" \) ) ./artifact/firmware/ || true
+          cp -rf immortalwrt/bin/targets/ ./artifact/targets/ || true
+          
           END_TIME=`date +'%Y-%m-%d %H:%M:%S'`
           END_SECONDS=$(date --date="$END_TIME" +%s)
-          SECONDS=$((END_SECONDS-START_SECONDS))
+          SECONDS=$((END_SECONDS - ${{ env.START_SECONDS }}))
           HOUR=$(( $SECONDS/3600 ))
           MIN=$(( ($SECONDS-${HOUR}*3600)/60 ))
           SEC=$(( $SECONDS-${HOUR}*3600-${MIN}*60 ))
           echo "BUILD_TIME=${HOUR}时${MIN}分${SEC}秒" >> $GITHUB_ENV
 
-      - name: 上传targets文件夹
-        if: steps.compile.outcome == 'success' && env.UPLOAD_TARGETS == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ImmortalWrt_x86_targets_${{ env.FILE_TIME }}
-          path: ./artifact/targets/
-
       - name: 上传固件文件
-        if: steps.compile.outcome == 'success' && env.UPLOAD_FIRMWARE == 'true'
+        if: steps.compile.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: ImmortalWrt_x86_firmware_${{ env.FILE_TIME }}
           path: ./artifact/firmware/
 
-      - name: 上传PVE/KVM镜像文件
-        if: steps.compile.outcome == 'success' && env.UPLOAD_QCOW2 == 'true'
+      - name: 上传targets文件夹
+        if: steps.compile.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
-          name: ImmortalWrt_x86_pvekvm_${{ env.FILE_TIME }}
-          path: ./artifact/pvekvm/
-
-      - name: 上传Hyper-V镜像文件
-        if: steps.compile.outcome == 'success' && env.UPLOAD_VHDX == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ImmortalWrt_x86_hyperv_${{ env.FILE_TIME }}
-          path: ./artifact/hyperv/
-
-      - name: 上传VMware镜像文件
-        if: steps.compile.outcome == 'success' && env.UPLOAD_VMDK == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ImmortalWrt_x86_vmware_${{ env.FILE_TIME }}
-          path: ./artifact/vmware/
-
-      - name: 上传插件包文件
-        if: steps.compile.outcome == 'success' && env.UPLOAD_IPK == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ImmortalWrt_x86_package_${{ env.FILE_TIME }}
-          path: ./artifact/package/
-
-      - name: 上传固件信息
-        if: steps.compile.outcome == 'success' && env.UPLOAD_CONFIG == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ImmortalWrt_x86_buildinfo_${{ env.FILE_TIME }}
-          path: ./artifact/buildinfo/
+          name: ImmortalWrt_x86_targets_${{ env.FILE_TIME }}
+          path: ./artifact/targets/
 
       - name: 自动发布固件到 Releases
+        if: steps.compile.outcome == 'success'
         uses: ncipollo/release-action@main
-        if: steps.compile.outcome == 'success' && env.UPLOAD_RELEASE == 'true'
         with:
           name: ${{ env.FILE_TIME1 }} 「 ${{ env.FIRMWARE_MESSAGE }} 」
           tag: ${{ env.FILE_TIME2 }}-immortalwrt-x86
@@ -509,67 +234,14 @@ jobs:
           body: |
             ★  源码 : ${{ env.REPO_URL }}
             ★  分支 : ${{ env.REPO_BRANCH }}
-            ★  固件类型 : ImmortalWrt 24.10.4 x86 with TurboACC
+            ★  固件类型 : ImmortalWrt 24.10.4 x86
 
-            🖥 内核版本：${{ env.KERNEL_PATCHVER }}
+            🖥 内核版本：6.6
 
             🎈 编译时间：${{ env.FILE_TIME1 }}
 
             ⏰ 编译用时：${{ env.BUILD_TIME }}
 
-            🚀 特色功能：TurboACC 网络加速已启用
-
-            🔌 插件列表：
-            ${{ env.PLUGIN_LIST }}
+            🚀 特色功能：基础网络加速
 
           artifacts: ./artifact/firmware/*
-
-      - name: 删除运行记录
-        uses: Mattraks/delete-workflow-runs@v2
-        with:
-          token: ${{ secrets.MY_GITHUB_TOKEN }}
-          repository: ${{ github.repository }}
-          retain_days: 0
-          keep_minimum_runs: 0
-
-      - name: 删除自动发布的旧固件
-        uses: shidahuilang/delete-older-releases@main
-        if: steps.compile.outcome == 'success' && env.UPLOAD_RELEASE == 'true'
-        with:
-          keep_latest: 5
-          delete_tags: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
-
-      - name: 编译成功信息通知-企业微信
-        if: steps.compile.outcome == 'success' && env.WECHAT_WORK_PUSH == 'true'
-        run: |
-          curl "http://${{ secrets.WECHAT_WORK_URL }}/push?token=${{ secrets.WECHAT_WORK_TOKEN }}&message=\
-          您的ImmortalWrt 24.10.4 x86 TurboACC固件成功编译完成了！%0a%0a\
-          🎈编译时间：${{ env.FILE_TIME1 }}%0a%0a\
-          🖥内核版本：${{ env.KERNEL_PATCHVER }}%0a%0a\
-          ⏰编译用时：${{ env.BUILD_TIME }}%0a%0a\
-          🚀特色功能：TurboACC网络加速%0a%0a\
-          🎉发布地址：${{ env.GITHUB_RELEASE }}%0a%0a\
-          🌴ImmortalWrt x86固件已经编译完成🎈！！！" || true
-
-      - name: 编译成功信息通知-Telegram
-        if: steps.compile.outcome == 'success' && env.TELEGRAM_BOT == 'true'
-        run: |
-          curl "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}&text=
-
-             您的ImmortalWrt 24.10.4 x86 TurboACC固件成功编译完成了！
-
-            🖥 内核版本：${{ env.KERNEL_PATCHVER }}
-
-            🎈 编译时间：${{ env.FILE_TIME1 }}
-            
-            ⏰ 编译用时：${{ env.BUILD_TIME }}
-
-            🚀 特色功能：TurboACC 网络加速
-
-            🎉 发布地址：${{ env.GITHUB_RELEASE }}
-
-            🌴 ImmortalWrt x86 固件已经编译完成 🎈！！！
-
-            " >/dev/null 2>&1 && echo "ok..."
