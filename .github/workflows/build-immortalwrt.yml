@@ -9,7 +9,6 @@ on:
         default: true
         type: boolean
 
-  # 定时触发编译(北京时间：每天早2点)
   schedule:
     - cron: 30 17 * * *
 
@@ -44,7 +43,6 @@ jobs:
             exit 1
           fi
           
-          # 使用更安全的方式加载配置
           while IFS='=' read -r key value; do
             if [[ -z "$key" || "$key" =~ ^[[:space:]]*# ]]; then
               continue
@@ -86,22 +84,28 @@ jobs:
           docker-images: true
           swap-storage: true
 
-      - name: 创建模拟物理磁盘
+      - name: 扩展工作空间
         run: |
-          mnt_size=$(expr $(df -h /mnt | tail -1 | awk '{print $4}' | sed 's/[[:alpha:]]//g' | sed 's/\..*//') - 1)
-          root_size=$(expr $(df -h / | tail -1 | awk '{print $4}' | sed 's/[[:alpha:]]//g' | sed 's/\..*//') - 4)
-          sudo truncate -s "${mnt_size}"G /mnt/mnt.img
-          sudo truncate -s "${root_size}"G /root.img
-          sudo losetup /dev/loop6 /mnt/mnt.img
-          sudo losetup /dev/loop7 /root.img
-          sudo pvcreate /dev/loop6
-          sudo pvcreate /dev/loop7
-          sudo vgcreate github /dev/loop6 /dev/loop7
-          sudo lvcreate -n runner -l 100%FREE github
-          sudo mkfs.xfs /dev/github/runner
+          echo "扩展工作空间..."
+          # 检查可用空间
+          echo "当前磁盘使用情况:"
+          df -h
+          
+          # 创建额外空间
+          extra_space=$(expr $(df -h /mnt | tail -1 | awk '{print $4}' | sed 's/[[:alpha:]]//g' | sed 's/\..*//') - 2)
+          if [ $extra_space -lt 10 ]; then
+            extra_space=10  # 至少10GB
+          fi
+          echo "创建 ${extra_space}GB 额外空间"
+          
+          sudo dd if=/dev/zero of=/mnt/extra.img bs=1G count=$extra_space status=progress
+          sudo mkfs.ext4 /mnt/extra.img
           sudo mkdir -p /github-builder
-          sudo mount /dev/github/runner /github-builder
+          sudo mount /mnt/extra.img /github-builder
           sudo chown -R $USER:$GROUPS /github-builder
+          
+          echo "扩展后磁盘使用情况:"
+          df -h
 
       - name: 下载ImmortalWrt源码
         working-directory: /github-builder
@@ -245,3 +249,9 @@ jobs:
             🚀 特色功能：基础网络加速
 
           artifacts: ./artifact/firmware/*
+
+      - name: 清理工作空间
+        if: always()
+        run: |
+          sudo umount /github-builder 2>/dev/null || true
+          sudo rm -f /mnt/extra.img 2>/dev/null || true
