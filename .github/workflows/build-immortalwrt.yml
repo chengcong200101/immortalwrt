@@ -243,107 +243,160 @@ jobs:
           mv ${WORKPATH}/$CONFIG_FILE .config
           make defconfig
 
+      - name: 验证配置文件
+        run: |
+          cd immortalwrt
+          echo "验证配置文件完整性..."
+          
+          if [ ! -f ".config" ]; then
+            echo "错误: .config 文件不存在"
+            exit 1
+          fi
+          
+          echo "配置文件基本检查:"
+          echo "- 目标架构: $(grep "CONFIG_TARGET_x86" .config | head -1 || echo "未设置")"
+          echo "- TurboACC: $(grep "CONFIG_PACKAGE_luci-app-turboacc" .config | head -1 || echo "未设置")"
+          echo "- LUCI界面: $(grep "CONFIG_PACKAGE_luci" .config | head -1 || echo "未设置")"
+          
+          # 确保基本配置存在
+          if ! grep -q "CONFIG_TARGET_x86=y" .config; then
+            echo "警告: 未设置x86目标，尝试修复..."
+            echo "CONFIG_TARGET_x86=y" >> .config
+            echo "CONFIG_TARGET_x86_64=y" >> .config
+            echo "CONFIG_TARGET_x86_64_DEVICE_generic=y" >> .config
+          fi
+          
+          make defconfig
+
       - name: 添加TurboACC加速
         run: |
           cd immortalwrt
           echo "添加TurboACC加速功能..."
-          # 启用TurboACC相关配置
-          sed -i 's/# CONFIG_PACKAGE_luci-app-turboacc is not set/CONFIG_PACKAGE_luci-app-turboacc=y/' .config
-          sed -i 's/# CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_flow-offload is not set/CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_flow-offload=y/' .config
-          sed -i 's/# CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_shortcut-fe is not set/CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_shortcut-fe=y/' .config
-          sed -i 's/# CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_dnsforwarder is not set/CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_dnsforwarder=y/' .config
-          sed -i 's/# CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_bbr-cca is not set/CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_bbr-cca=y/' .config
           
-          # 启用内核相关模块
+          # 确保配置文件存在
+          if [ ! -f ".config" ]; then
+            echo "错误: .config 文件不存在"
+            exit 1
+          fi
+          
+          echo "当前配置文件中TurboACC相关设置:"
+          grep -i "turboacc" .config || echo "未找到TurboACC配置"
+          
+          # 直接修改.config文件启用TurboACC
+          echo "启用TurboACC相关配置..."
+          sed -i 's/# CONFIG_PACKAGE_luci-app-turboacc is not set/CONFIG_PACKAGE_luci-app-turboacc=y/' .config
+          sed -i 's/CONFIG_PACKAGE_luci-app-turboacc=n/CONFIG_PACKAGE_luci-app-turboacc=y/' .config
+          
+          sed -i 's/# CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_flow-offload is not set/CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_flow-offload=y/' .config
+          sed -i 's/CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_flow-offload=n/CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_flow-offload=y/' .config
+          
+          sed -i 's/# CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_shortcut-fe is not set/CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_shortcut-fe=y/' .config
+          sed -i 's/CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_shortcut-fe=n/CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_shortcut-fe=y/' .config
+          
+          sed -i 's/# CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_dnsforwarder is not set/CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_dnsforwarder=y/' .config
+          sed -i 's/CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_dnsforwarder=n/CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_dnsforwarder=y/' .config
+          
+          sed -i 's/# CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_bbr-cca is not set/CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_bbr-cca=y/' .config
+          sed -i 's/CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_bbr-cca=n/CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_bbr-cca=y/' .config
+          
+          # 添加内核模块支持
           echo "CONFIG_PACKAGE_kmod-fast-classifier=y" >> .config
           echo "CONFIG_PACKAGE_kmod-shortcut-fe=y" >> .config
           echo "CONFIG_PACKAGE_kmod-shortcut-fe-cm=y" >> .config
           
+          echo "TurboACC配置后的设置:"
+          grep -i "turboacc" .config || echo "未找到TurboACC配置"
+          
           # 更新配置
           make defconfig
-
-      # 注释掉 SSH 步骤以避免 tmate 错误
-      # - name: 创建 .ssh 目录
-      #   if: env.SSH_ACTIONS == 'true' || (github.event.inputs.SSH_ACTION == 'true')
-      #   run: mkdir -p $GITHUB_WORKSPACE/immortalwrt/.ssh
-
-      # - name: SSH远程连接服务器
-      #   uses: db-one/debugger-action@main
-      #   if: env.SSH_ACTIONS == 'true' || (github.event.inputs.SSH_ACTION == 'true')
-      #   env:
-      #     TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-      #     TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
 
       - name: 输出编译信息
         run: |
           cd immortalwrt
-
+          
           echo
           echo " 系统空间      类型   总数  已用  可用 使用率"
           df -hT $PWD
-
+          
           echo
           echo "=========================================="
           echo
-
+          
           echo "	    CPU物理数量:$(cat /proc/cpuinfo| grep "physical id"| sort| uniq| wc -l)"
           echo "	    CPU核心及版本信息：$(cat /proc/cpuinfo | grep name | cut -f2 -d: | uniq -c)"
-
+          
           echo
           echo "=========================================="
           echo
-
+          
           # 获取ImmortalWrt版本信息
           if [ -f "package/base-files/files/etc/openwrt_release" ]; then
             echo "	    当前编译版本：ImmortalWrt $(grep 'DISTRIB_DESCRIPTION' package/base-files/files/etc/openwrt_release | cut -d "'" -f 2)"
+          else
+            echo "	    当前编译版本：无法获取版本信息"
           fi
-
+          
           # 获取内核版本
           if [ -f "target/linux/x86/Makefile" ]; then
-            KERNEL_VERSION=$(cat target/linux/x86/Makefile | grep KERNEL_PATCHVER | sed 's/^.\{17\}//g')
+            KERNEL_VERSION=$(cat target/linux/x86/Makefile | grep KERNEL_PATCHVER | head -1 | sed 's/^.\{17\}//g')
             echo "KERNEL_PATCHVER=$KERNEL_VERSION" >> $GITHUB_ENV
             echo "	    内核版本：$KERNEL_VERSION"
           else
             echo "KERNEL_PATCHVER=unknown" >> $GITHUB_ENV
             echo "	    内核版本：未知"
           fi
-
+          
           echo "	    源码分支：${{ env.REPO_BRANCH }}"
           echo "	    编译时间：${{ env.FILE_TIME1 }}"
-
+          
           echo
           echo "=========================================="
-
+          
           # 检查TurboACC是否启用
           if grep -q "CONFIG_PACKAGE_luci-app-turboacc=y" .config; then
             echo "	    TurboACC加速：已启用"
           else
-            echo "	    TurboACC加速：未启用"
+            echo "	    TurboACC加速：未启用 - 尝试手动启用"
+            # 尝试手动启用
+            echo "CONFIG_PACKAGE_luci-app-turboacc=y" >> .config
+            echo "CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_flow-offload=y" >> .config
+            echo "CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_shortcut-fe=y" >> .config
+            echo "CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_dnsforwarder=y" >> .config
+            echo "CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_bbr-cca=y" >> .config
+            echo "CONFIG_PACKAGE_kmod-fast-classifier=y" >> .config
+            echo "CONFIG_PACKAGE_kmod-shortcut-fe=y" >> .config
+            echo "CONFIG_PACKAGE_kmod-shortcut-fe-cm=y" >> .config
+            echo "	    TurboACC加速：已手动启用"
           fi
-
+          
           echo
           echo "=========================================="
-
-          grep -i CONFIG_PACKAGE_luci-app .config | grep -v \# > Plug-in
-          grep -i CONFIG_PACKAGE_luci-theme .config | grep -v \# >> Plug-in
+          
+          # 生成插件列表，但忽略任何错误
+          set +e
+          grep -i CONFIG_PACKAGE_luci-app .config | grep -v \# > Plug-in 2>/dev/null
+          grep -i CONFIG_PACKAGE_luci-theme .config | grep -v \# >> Plug-in 2>/dev/null
           sed -i '/INCLUDE/d' Plug-in > /dev/null 2>&1
-          sed -i 's/CONFIG_PACKAGE_/、/g' Plug-in
+          sed -i 's/CONFIG_PACKAGE_/、/g' Plug-in > /dev/null 2>&1
           sed -i '/Transparent_Proxy/d' Plug-in > /dev/null 2>&1
           sed -i '/qbittorrent-simple_dynamic/d' Plug-in > /dev/null 2>&1
-          sed -i 's/=y/\ /g' Plug-in
-          awk '$0=NR$0' Plug-in > Plug-2
-          awk '{print "	" $0}' Plug-2 > Plug-in
-          PLUGIN_LIST=$(cat Plug-in)
+          sed -i 's/=y/\ /g' Plug-in > /dev/null 2>&1
+          awk '$0=NR$0' Plug-in > Plug-2 2>/dev/null
+          awk '{print "	" $0}' Plug-2 > Plug-in 2>/dev/null
+          PLUGIN_LIST=$(cat Plug-in 2>/dev/null)
           echo "PLUGIN_LIST<<EOF" >> $GITHUB_ENV
           echo "$PLUGIN_LIST" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
-
+          set -e
+          
           echo
           echo
           echo "	      已选插件列表"
-          cat Plug-in
-          rm -rf {Plug-in,Plug-2}
-
+          cat Plug-in 2>/dev/null || echo "	    无法生成插件列表"
+          
+          # 安全地删除文件
+          rm -f Plug-in Plug-2
+          
           echo
           echo "=========================================="
 
